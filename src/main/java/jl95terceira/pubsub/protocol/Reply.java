@@ -1,4 +1,4 @@
-package jl95terceira.pubsub.data;
+package jl95terceira.pubsub.protocol;
 
 import static jl95terceira.lang.stt.I;
 

@@ -1,8 +1,8 @@
 package jl95terceira.net;
 
-import java.util.function.Consumer;
+import jl95terceira.lang.variadic.*;
 
-public abstract class GenericChannel<T> implements Channel<T> {
+public abstract class GenericChannel<T> {
 
     public static class SendException extends RuntimeException { public SendException(Exception x) {super(x);} }
     public static class RecvException extends RuntimeException { public RecvException(Exception x) {super(x);} }
@@ -12,8 +12,8 @@ public abstract class GenericChannel<T> implements Channel<T> {
     private       Boolean              recvToStop = false;
     private final Object               recvSync   = new Object();
 
-    private Consumer<SendException> sendExcHandler;
-    private Consumer<RecvException> recvExcHandler;
+    private Method1<SendException> sendExcHandler;
+    private Method1<RecvException> recvExcHandler;
 
     public GenericChannel(java.io.InputStream  in,
                           java.io.OutputStream out) {
@@ -21,7 +21,7 @@ public abstract class GenericChannel<T> implements Channel<T> {
         this.out = out;
     }
 
-    public final void send             (T                       outgoing) {
+    public final void send             (T                      outgoing) {
         try {
             var outgoingAsBytes = toBytes(outgoing);
             var size            = outgoingAsBytes.length;
@@ -32,17 +32,23 @@ public abstract class GenericChannel<T> implements Channel<T> {
         }
         catch (Exception ex) {
             if (sendExcHandler != null) {
-                sendExcHandler.accept(new SendException(ex));
+                sendExcHandler.call(new SendException(ex));
             }
             else {
 
             }
         }
     }
-    public final void setSendExcHandler(Consumer<SendException> handler) {
+    public final void setSendExcHandler(Method1<SendException> handler) {
         sendExcHandler = handler;
     }
-    public final void recv             (Consumer<T>             incomingCb) {
+    public final void recv             (Method1<T>             incomingCb) {
+        recv((T incoming) -> {
+            incomingCb.call(incoming);
+            return true;
+        });
+    }
+    public final void recv             (Function1<Boolean, T>  incomingCb) {
         recvToStop = false;
         new Thread(() -> {
             synchronized (recvSync) {
@@ -54,11 +60,14 @@ public abstract class GenericChannel<T> implements Channel<T> {
                         var size            = new java.math.BigInteger(sizeAsBytes).intValue();
                         var incomingAsBytes = new byte[size];
                         in.read(incomingAsBytes, 0, size);
-                        incomingCb.accept(fromBytes(incomingAsBytes));
+                        var toContinue = incomingCb.call(fromBytes(incomingAsBytes));
+                        if (!toContinue) {
+                            recvToStop = true;
+                        }
                     }
                 }
                 catch (Exception ex) {
-                    recvExcHandler.accept(new RecvException(ex));
+                    recvExcHandler.call(new RecvException(ex));
                 }
             }
         }).start();
@@ -70,7 +79,7 @@ public abstract class GenericChannel<T> implements Channel<T> {
     public final void recvStopAsync    () {
         recvToStop = true;
     }
-    public final void setRecvExcHandler(Consumer<RecvException> handler) {
+    public final void setRecvExcHandler(Method1<RecvException> handler) {
         recvExcHandler = handler;
     }
 

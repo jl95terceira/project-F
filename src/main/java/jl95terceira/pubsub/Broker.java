@@ -1,83 +1,98 @@
 package jl95terceira.pubsub;
 
-import static jl95terceira.lang.stt.*;
+import static jl95terceira.lang.stt.uncheck;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
+import jl95terceira.lang.I;
 import jl95terceira.lang.variadic.*;
 import jl95terceira.net.*;
+import jl95terceira.pubsub.util.Connection;
 
 public class Broker {
 
-    private       java.net.ServerSocket   server;
-    private       Boolean                 toStop  = false;
-    private final Object                  sync    = new Object();
-    private final java.util.List<Method0> stopCbs = new LinkedList<>();
-
-    public final java.net.InetAddress iAddr;
-    public final Integer              port;
-    public final Integer              acceptTimeoutMs;
-    public final Handlers             handlers;
-
-    public static class Handlers {
-        public Method0            acceptTimeout;
-        public Method1<Exception> acceptError;
+    public interface    Options {
+        InetAddress        iAddr          ();
+        Integer            port           ();
+        Integer            acceptTimeoutMs();
+        Method1<Exception> acceptErrorCb  ();
+        Method0            acceptTimeoutCb();
+    }
+    public static class EditableOptions {
+        public InetAddress        iAddr           = uncheck(() -> java.net.InetAddress.getByAddress(new byte[]{127,0,0,1}));
+        public Integer            port            = 4242;
+        public Integer            acceptTimeoutMs = 1000;
+        public Method1<Exception> acceptErrorCb   = (ex)     -> System.out.printf("Error on accept connection: %s%n", ex);;
+        public Method0            acceptTimeoutCb = ()       -> {};
     }
 
-    public static class Options {
-        public java.net.InetAddress iAddr           = uncheck(() -> java.net.InetAddress.getByAddress(new byte[]{127,0,0,1}));
-        public Integer              port            = 4242;
-        public Integer              acceptTimeoutMs = 1000;
-        public Handlers             handlers        = new Handlers();
+    private final Map<InetAddress, Connection> connectionsMap = new ConcurrentHashMap<>();
+    private final SocketServer                 socketServer;
+
+    public Broker(Options         options) {
+        this.socketServer = new SocketServer(new SocketServer.Options() {
+
+            @Override public InetAddress        iAddr           () {
+                return options.iAddr();
+            }
+            @Override public Integer            port            () {
+                return options.port();
+            }
+            @Override public Integer            acceptTimeoutMs () {
+                return options.acceptTimeoutMs();
+            }
+            @Override public Method1<Socket>    acceptCb        () {
+                return Broker.this::acceptCb;
+            }
+            @Override public Method1<Exception> acceptErrorCb   () { return options.acceptErrorCb(); }
+            @Override public Method0            acceptTimeoutCb () {
+                return options.acceptTimeoutCb();
+            }
+        });
+    }
+    public Broker(EditableOptions edit) {
+        this(new Options() {
+
+            @Override public InetAddress        iAddr          () {
+                return edit.iAddr;
+            }
+            @Override public Integer            port           () {
+                return edit.port;
+            }
+            @Override public Integer            acceptTimeoutMs() {
+                return edit.acceptTimeoutMs;
+            }
+            @Override public Method1<Exception> acceptErrorCb  () {
+                return edit.acceptErrorCb;
+            }
+            @Override public Method0            acceptTimeoutCb() {
+                return edit.acceptTimeoutCb;
+            }
+        });
     }
 
-    public Broker(Options              options) {
-        this.iAddr           = options.iAddr;
-        this.port            = options.port;
-        this.acceptTimeoutMs = options.acceptTimeoutMs;
-        this.handlers        = options.handlers;
-    }
-
-    private void onNewConnection(java.net.Socket socket) {
-
-        uncheck(() -> SocketBytesChannel.get(socket)).recv(payload -> {
-
-            System.out.printf("Broker recv NOT implemented - got: %s%n", payload.length);
+    private void acceptCb(Socket socket) {
+        var connection = new Connection(socket);
+        connectionsMap.put(socket.getInetAddress(), connection);
+        connection.stringChannel.recv((message) -> {
 
         });
     }
 
-    public void start() throws java.io.IOException {
-        toStop = false;
-        server = new java.net.ServerSocket();
-        server.bind(new java.net.InetSocketAddress(iAddr, port));
-        server.setSoTimeout(acceptTimeoutMs);
-        new Thread(() -> {
-            while (!toStop) {
-                java.net.Socket socket;
-                try {
-                    synchronized (sync) {
-                        socket = server.accept();
-                    }
-                }
-                catch (java.net.SocketTimeoutException ex) /* not really an error - just to give control back to the thread every so often */ {
-                    ifNull(handlers.acceptTimeout, () -> {}).call();
-                    continue;
-                }
-                catch (Exception ex) {
-                    ifNull(handlers.acceptError, ex_ -> System.out.printf("Error on accept connection: %s%n", ex_)).call(ex);
-                    continue;
-                }
-                stopCbs.add(unchecked(socket::close));
-                onNewConnection(socket);
-            }
-        }).start();
+    public final Iterable<InetAddress> getAddressesLazy() {
+        return connectionsMap.keySet();
     }
-    public void stop () throws java.io.IOException {
-        toStop = true;
-        synchronized (sync) {/* wait */}
-        for (var stopCb: stopCbs) stopCb.call();
-        server.close();
+    public final Iterable<InetAddress> getAddresses    () {
+            return I.of(getAddressesLazy()).toSet();
+    }
+    public final Subscription          getSubscription (InetAddress  iAddr) {
+        return connectionsMap.get(iAddr).subscription;
+    }
+    public final void                  setSubscription (InetAddress  iAddr,
+                                                        Subscription subscription) {
+        connectionsMap.get(iAddr).subscription = subscription;
     }
 }

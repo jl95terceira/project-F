@@ -1,4 +1,4 @@
-package jl95terceira.pubsub.data.serdes;
+package jl95terceira.pubsub.serdes;
 
 import static jl95terceira.lang.stt.*;
 
@@ -6,39 +6,43 @@ import java.util.UUID;
 
 import javax.json.*;
 import jl95terceira.lang.variadic.*;
-import jl95terceira.pubsub.data.Request;
+import jl95terceira.pubsub.protocol.Request;
+import jl95terceira.pubsub.protocol.requests.*;
+import jl95terceira.pubsub.serdes.requests.SubscriptionByListRequestJsonSerdes;
+import jl95terceira.serdes.ListOfStringToJson;
 
 public class RequestJsonSerdes {
 
     public enum Id {
 
-        ID("id");
+        ID  ("id"),
+        TYPE("type");
 
         public final String value;
         Id(String value) {this.value = value;}
     }
+    public enum RequestType {
+        CLOSE,
+        SUBSCRIBE_ALL,
+        SUBSCRIBE_NONE,
+        SUBSCRIBE_LIST;
+    }
 
     /**
-    * serialize
-    * @param x object to be serialized
-    * @return serial (JSON)
-    */
-    public static                     JsonObject toJson     (Request      x) {
-        return toJsonExt(x, I());
-    }
-    /**
     * serialize extended / sub-classed
-    * @param x object to be serialized
+    * @param req object to be serialized
     * @param extendedEntries extra entries to be added to the serial
     * @return serial (JSON)
     * @param <T> object type
     */
-    public static <T extends Request> JsonObject toJsonExt  (T            x,
+    public static <T extends Request> JsonObject toJsonExt  (T            req,
+                                                             RequestType  type,
                                                              Iterable<Tuple2<String, JsonValue>> extendedEntries) {
         var job = Json.createObjectBuilder();
         for (var t: I(
 
-            tuple(Id.ID, Json.createValue(x.id.toString()))
+            tuple(Id.TYPE, Json.createValue(req.id.toString())),
+            tuple(Id.ID  , Json.createValue(type  .toString()))
 
         )) {
             job.add(t.a1.value, t.a2);
