@@ -1,19 +1,22 @@
 package jl95terceira.net;
 
+import static jl95terceira.lang.stt.uncheck;
+
 import jl95terceira.lang.variadic.*;
 
 public abstract class GenericChannel<T> {
 
-    public static class SendException extends RuntimeException { public SendException(Exception x) {super(x);} }
-    public static class RecvException extends RuntimeException { public RecvException(Exception x) {super(x);} }
+    public static class RecvOptions {
+        public Method0            afterStop      = () -> {};
+        public Method1<Exception> recvExcHandler = ex -> { ex.printStackTrace(); };
+    }
+    public static class RecvAlreadyOnException extends RuntimeException {}
 
     private final java.io.OutputStream out;
     private final java.io.InputStream  in;
+    private       Boolean              recvOn     = false;
     private       Boolean              recvToStop = false;
     private final Object               recvSync   = new Object();
-
-    private Method1<SendException> sendExcHandler;
-    private Method1<RecvException> recvExcHandler;
 
     public GenericChannel(java.io.InputStream  in,
                           java.io.OutputStream out) {
@@ -21,39 +24,36 @@ public abstract class GenericChannel<T> {
         this.out = out;
     }
 
-    public final void send             (T                      outgoing) {
-        try {
-            var outgoingAsBytes = toBytes(outgoing);
-            var size            = outgoingAsBytes.length;
-            var sizeAsBytes     = java.math.BigInteger.valueOf(size).toByteArray();
+    public final void       send             (T                      outgoing) {
+        var outgoingAsBytes = toBytes(outgoing);
+        var size            = outgoingAsBytes.length;
+        var sizeAsBytes     = java.math.BigInteger.valueOf(size).toByteArray();
+        uncheck(() -> {
             out.write(sizeAsBytes.length);
             out.write(sizeAsBytes);
             out.write(outgoingAsBytes);
-        }
-        catch (Exception ex) {
-            if (sendExcHandler != null) {
-                sendExcHandler.call(new SendException(ex));
-            }
-            else {
-
-            }
-        }
-    }
-    public final void setSendExcHandler(Method1<SendException> handler) {
-        sendExcHandler = handler;
-    }
-    public final void recv             (Method1<T>             incomingCb) {
-        recv((T incoming) -> {
-            incomingCb.call(incoming);
-            return true;
         });
     }
-    public final void recv             (Function1<Boolean, T>  incomingCb) {
+    public final void       recv             (Method1<T>             incomingCb,
+                                              RecvOptions            options) {
+        recvWhile((T incoming) -> {
+            incomingCb.call(incoming);
+            return true;
+        }, options);
+    }
+    public final void       recv             (Method1<T>             incomingCb) { recv(incomingCb, new RecvOptions()); }
+    synchronized
+    public final void       recvWhile        (Function1<Boolean, T>  incomingCb,
+                                              RecvOptions            options) {
+        if (recvOn) {
+            throw new RecvAlreadyOnException();
+        }
+        recvOn     = true;
         recvToStop = false;
         new Thread(() -> {
             synchronized (recvSync) {
-                try {
-                    while (!recvToStop) {
+                while (!recvToStop) {
+                    try {
                         var sizeSize        = in.read();
                         var sizeAsBytes     = new byte[sizeSize];
                         in.read(sizeAsBytes, 0, sizeSize);
@@ -62,25 +62,25 @@ public abstract class GenericChannel<T> {
                         in.read(incomingAsBytes, 0, size);
                         var toContinue = incomingCb.call(fromBytes(incomingAsBytes));
                         if (!toContinue) {
-                            recvToStop = true;
+                            recvStopAsync();
                         }
                     }
+                    catch (Exception ex) {
+                        options.recvExcHandler.call(ex);
+                    }
                 }
-                catch (Exception ex) {
-                    recvExcHandler.call(new RecvException(ex));
-                }
+                recvOn = false;
             }
+            options.afterStop.call();
         }).start();
     }
-    public final void recvStop         () {
+    public final void       recvWhile        (Function1<Boolean, T>  incomingCb) { recvWhile(incomingCb, new RecvOptions()); }
+    public final void       recvStop         () {
         recvStopAsync();
         synchronized (recvSync) /* wait */ {}
     }
-    public final void recvStopAsync    () {
+    public final void       recvStopAsync    () {
         recvToStop = true;
-    }
-    public final void setRecvExcHandler(Method1<RecvException> handler) {
-        recvExcHandler = handler;
     }
 
     protected abstract byte[] toBytes  (T      outgoing);

@@ -4,6 +4,7 @@ import static jl95terceira.lang.stt.*;
 
 import java.net.Socket;
 
+import jl95terceira.lang.variadic.*;
 import jl95terceira.net.*;
 import jl95terceira.pubsub.Subscription;
 
@@ -12,8 +13,7 @@ public class Connection {
     public final Socket        socket;
     public final BytesChannel  channel;
     public final StringChannel stringChannel;
-
-    public Subscription subscription = (topic) -> false;
+    public       Subscription  subscription = (topic) -> false;
 
     public Connection(Socket socket) {
         this.socket        = socket;
