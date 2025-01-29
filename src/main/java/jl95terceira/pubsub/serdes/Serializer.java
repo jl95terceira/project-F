@@ -5,7 +5,7 @@ import static jl95terceira.lang.stt.*;
 import javax.json.*;
 
 import jl95terceira.lang.variadic.*;
-import jl95terceira.pubsub.protocol.Request;
+import jl95terceira.pubsub.protocol.Message;
 
 public class Serializer {
 
@@ -26,7 +26,7 @@ public class Serializer {
      * @return request serializer function
      * @param <B> request body type
      */
-    public static <B> Function1<JsonObject, Request<B>> get(String                    typeName,
+    public static <B> Function1<JsonObject, Message<B>> get(String                    typeName,
                                                             Function1<JsonValue, B>   bodySerializer) {
         return req -> {
             var job = Json.createObjectBuilder();

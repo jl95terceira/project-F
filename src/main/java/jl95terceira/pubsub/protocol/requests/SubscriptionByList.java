@@ -1,19 +1,15 @@
 package jl95terceira.pubsub.protocol.requests;
 
 import static jl95terceira.lang.stt.*;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import javax.json.JsonValue;
 
-import jl95terceira.lang.I;
 import jl95terceira.lang.NamedDataClass;
 import jl95terceira.lang.variadic.*;
 import jl95terceira.pubsub.JsonSerializable;
 import jl95terceira.pubsub.Subscription;
-import jl95terceira.pubsub.SubscriptionSupplier;
 import jl95terceira.pubsub.Topic;
 import jl95terceira.pubsub.serdes.requests.SubscriptionByListJsonSerdes;
 
