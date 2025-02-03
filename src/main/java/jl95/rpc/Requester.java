@@ -6,8 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.LinkedList;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -19,11 +18,14 @@ import jl95.net.BytesReceiver;
 import jl95.net.BytesSender;
 import jl95.net.Receiver;
 import jl95.net.Sender;
-import jl95.pubsub.util.Defaults;
+import jl95.net.Server;
+import jl95.net.util.Defaults;
+import jl95.net.util.Util;
 import jl95.rpc.protocol.Request;
 import jl95.rpc.protocol.Response;
 import jl95.rpc.serdes.RequestJsonSerdes;
 import jl95.rpc.serdes.ResponseJsonSerdes;
+import jl95.rpc.util.RequesterEditableOptionsPartial;
 import jl95.rpc.util.SerdesDefaults;
 
 public abstract class Requester<A, R> {
@@ -37,63 +39,70 @@ public abstract class Requester<A, R> {
         public Response                  response;
     }
 
-    public interface             Options {
+    public interface    Options {
+
         OutputStream getOutput           ();
         InputStream  getInput            ();
-        Long         getResponseTimeoutMs();
+        Integer      getResponseTimeoutMs();
+
+        class Editable extends RequesterEditableOptionsPartial implements Options {
+
+            public Function0<InputStream>  inputGetter;
+            public Function0<OutputStream> outputGetter;
+
+            @Override public InputStream  getInput () {
+                return inputGetter .call();
+            }
+            @Override public OutputStream getOutput() {
+                return outputGetter.call();
+            }
+
+            public void setIoFromSocket(Socket            socket) {
+                inputGetter  = unchecked(socket::getInputStream);
+                outputGetter = unchecked(socket::getOutputStream);
+            }
+            public void setIoAsClient  (InetSocketAddress addr) {
+                var socket = new Socket();
+                uncheck(() -> socket.connect(addr));
+                setIoFromSocket(socket);
+            }
+            public void setIoAsServer  (InetSocketAddress addr,
+                                        Optional<Integer> clientConnectionTimeoutMs) {
+                var serverOptions = new Server.Options.Editable();
+                var clientSocketFuture = new CompletableFuture<Socket>();
+                serverOptions.acceptCb = (self, socket) -> {
+                    clientSocketFuture.complete(socket);
+                    self.stop();
+                };
+                var server = new Server(Util.getSimpleServerSocket(addr, Defaults.acceptTimeoutMs), serverOptions);
+                System.out.println("about to accept");
+                server.start();
+                System.out.println("about to set IO from socket as server");
+                setIoFromSocket(uncheck(() -> clientConnectionTimeoutMs.isPresent()
+                                            ? clientSocketFuture.get(clientConnectionTimeoutMs.get(), TimeUnit.MILLISECONDS)
+                                            : clientSocketFuture.get()));
+            }
+        }
+        static Requester.Options defaultsAsServer() {
+            var options = new Editable();
+            options.setIoAsServer(Defaults.serverAddr, Optional.of(Defaults.acceptTimeoutMsForSingleClient));
+            return options;
+        }
+        static Requester.Options defaultsAsClient() {
+            var options = new Editable();
+            options.setIoAsClient(Defaults.serverAddr);
+            return options;
+        }
     }
-    public static class          OptionsException         extends    RuntimeException {
+    public static class OptionsException         extends RuntimeException {
         public OptionsException(String info) {super(info);}
     }
-    public static abstract class EditableOptionsPartial   implements Options {
-
-        public Long responseTimeoutMs = 5000L;
-
-        @Override public Long getResponseTimeoutMs() { return responseTimeoutMs; }
-    }
-    public static class          EditableOptions1         extends    EditableOptionsPartial
-                                                          implements Options {
-
-        public InputStream  input;
-        public OutputStream output;
-
-        @Override public InputStream  getInput () {
-            return input;
-        }
-        @Override public OutputStream getOutput() {
-            return output;
-        }
-    }
-    public static class          EditableOptions2         extends    EditableOptionsPartial
-                                                          implements Options {
-
-        public Socket socket = new Socket();
-
-        @Override public InputStream  getInput () { return uncheck(socket::getInputStream); }
-        @Override public OutputStream getOutput() { return uncheck(socket::getOutputStream); }
-    }
-    public static class          EditableOptions3         extends    EditableOptionsPartial
-                                                          implements Options {
-        private final Socket  socket    = new Socket();
-        private       Boolean connected = false;
-
-        private void connectIfNotConnected() {
-            if (connected) return;
-            uncheck(() -> socket.connect(responderAddr));
-            connected = true;
-        }
-
-        public InetSocketAddress responderAddr = Defaults.brokerAddr;
-
-        @Override public InputStream  getInput () { connectIfNotConnected(); return uncheck(socket::getInputStream); }
-        @Override public OutputStream getOutput() { connectIfNotConnected(); return uncheck(socket::getOutputStream); }
-    }
-    public static class          ResponseTimeoutException extends    RuntimeException {}
-    public static class          ResponseDesynchException extends    RuntimeException {}
+    public static class ResponseTimeoutException extends RuntimeException {}
+    public static class ResponseDesynchException extends RuntimeException {}
 
     private final Sender  <byte[]>         sender;
     private final Receiver<byte[]>         receiver;
-    private final Long                     responseTimeoutMs;
+    private final Integer                  responseTimeoutMs;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private final Method0                  onClose;
 
@@ -102,24 +111,12 @@ public abstract class Requester<A, R> {
 
     public Requester(Options options) {
 
-        // get options
-        var input  = options.getInput ();
-        var output = options.getOutput();
-        // validate options
-        var missing = I(
-            tuple("input stream" , input),
-            tuple("output stream", output)
-        ).filter(t -> t.a2 == null).map(t -> t.a1).toList();
-        if (!missing.isEmpty()) {
-            throw new OptionsException("the following");
-        }
-        // ...
-        this.sender            = new BytesSender  (output);
-        this.receiver          = new BytesReceiver(input);
+        this.sender            = new BytesSender  (options::getOutput);
+        this.receiver          = new BytesReceiver(options::getInput);
         this.responseTimeoutMs = options.getResponseTimeoutMs();
         onClose = () -> {
-            uncheck(input ::close);
-            uncheck(output::close);
+            uncheck(options.getInput ()::close);
+            uncheck(options.getOutput()::close);
         };
     }
 

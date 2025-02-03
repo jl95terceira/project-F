@@ -2,6 +2,7 @@ package jl95.net;
 
 import static java.lang.String.*;
 
+import java.net.ServerSocket;
 import java.util.*;
 
 public class Test {
@@ -15,7 +16,7 @@ public class Test {
     public static void main(String[] args) throws Exception {
 
         System.out.println(format("Address: %s", addr));
-        var serversock = new java.net.ServerSocket();
+        var serversock = new ServerSocket();
         serversock.bind(addr);
         new Thread(() -> {
             try {
@@ -48,7 +49,7 @@ public class Test {
             messagesSend.add(UUID.randomUUID().toString().repeat(1000));
         }
         System.out.printf("Testing send-receive (through localhost) for %s messages%n", messagesSend.size());
-        var serversock = new java.net.ServerSocket();
+        var serversock = new ServerSocket();
         serversock.bind(addr);
         int[] charsReceivedNr = { 0 };
         new Thread(() -> {

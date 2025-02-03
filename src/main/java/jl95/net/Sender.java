@@ -6,12 +6,12 @@ import jl95.lang.variadic.*;
 
 public abstract class Sender<T> {
 
-    private final java.io.OutputStream output;
+    private final Function0<java.io.OutputStream> outputGetter;
 
     protected abstract byte[] toBytes(T outgoing);
 
-    public Sender(java.io.OutputStream output) {
-        this.output = output;
+    public Sender(Function0<java.io.OutputStream> outputGetter) {
+        this.outputGetter = outputGetter;
     }
 
     public final void send(T outgoing) {
@@ -19,13 +19,15 @@ public abstract class Sender<T> {
         var size            = outgoingAsBytes.length;
         var sizeAsBytes     = java.math.BigInteger.valueOf(size).toByteArray();
         uncheck(() -> {
-        output.write(sizeAsBytes.length);
-        output.write(sizeAsBytes);
-        output.write(outgoingAsBytes);
-    });
+            var output = outputGetter.call();
+            output.write(sizeAsBytes.length);
+            output.write(sizeAsBytes);
+            output.write(outgoingAsBytes);
+        });
     }
     public final <T2> Sender<T2> extend(Function1<T, T2> adapterFunction) {
-        return new Sender<T2>(output) {
+
+        return new Sender<T2>(outputGetter) {
 
             @Override protected byte[] toBytes(T2 incoming) {
                 return Sender.this.toBytes(adapterFunction.call(incoming));

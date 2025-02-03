@@ -1,10 +1,14 @@
 package jl95.net;
 
+import java.io.InputStream;
+
+import jl95.lang.variadic.*;
+
 public class StringReceiver extends Receiver<String> {
 
     private java.nio.charset.Charset charset;
 
-    public StringReceiver(java.io.InputStream in) {
+    public StringReceiver(Function0<InputStream> in) {
         super(in);
         setCharset(java.nio.charset.StandardCharsets.UTF_8);
     }

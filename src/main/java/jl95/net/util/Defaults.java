@@ -4,5 +4,7 @@ import java.net.InetSocketAddress;
 
 public class Defaults {
 
-    public static final InetSocketAddress serverAddr = InetSocketAddress.createUnresolved("127.0.0.1", 4242);
+    public static final InetSocketAddress serverAddr = new InetSocketAddress("127.0.0.1", 4242);
+    public static final Integer           acceptTimeoutMs = 1000;
+    public static final Integer           acceptTimeoutMsForSingleClient = 60000;
 }

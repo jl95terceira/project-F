@@ -34,8 +34,12 @@ public class SerdesDefaults {
                                     jsonToString             = JsonToString.get();
     public static final Function1<JsonValue, String>
                                     jsonFromString           = JsonFromString.get();
-    public static final Function1<? extends JsonValue, Message<Publication>>
-                                    publicationMessageToJson = Serializer.get(MessageType.PUBLISH.serial, PublicationJsonSerdes::toJson);
+    public static final Function1<byte[], JsonValue>
+                                    jsonToBytes              = json   -> stringToBytes.call
+                                                                        (jsonToString .call(json));
+    public static final Function1<JsonValue, byte[]>
+                                    jsonFromBytes            = serial -> jsonFromString .call
+                                                                        (stringFromBytes.call(serial));
     public static final Function1<String, byte[]>
                                     bytesToString            = Base64.getEncoder()::encodeToString;
     public static final Function1<byte[], String>

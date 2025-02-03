@@ -1,5 +1,7 @@
 package jl95.net;
 
+import static jl95.lang.SuperPowers.constant;
+
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -8,49 +10,55 @@ import jl95.lang.variadic.*;
 
 public abstract class Receiver<T> {
 
-    public interface    Options {
-        void afterStop          ();
-        void onException        (Exception   ex);
-        void onIoException      (IOException ex);
-        void onProtocolException(Exception   ex);
+    public interface RecvOptions<T> {
+
+        void afterStop          (Receiver<T> receiver);
+        void onException        (Receiver<T> receiver, Exception   ex);
+        void onIoException      (Receiver<T> receiver, IOException ex);
+        void onProtocolException(Receiver<T> receiver, Exception   ex);
+
+        class Editable<T> implements RecvOptions<T> {
+
+            public Method1<Receiver<T>>              afterStop          = (self) -> {};
+            public Method2<Receiver<T>, Exception>   excHandler         = (self, ex) -> ex.printStackTrace();
+            public Method2<Receiver<T>, IOException> ioExcHandler       = (self, ex) -> ex.printStackTrace();
+            public Method2<Receiver<T>, Exception>   protocolExcHandler = (self, ex) -> ex.printStackTrace();
+
+            @Override public void afterStop          (Receiver<T> self) { afterStop.call(self); }
+            @Override public void onException        (Receiver<T> self, Exception   ex) { excHandler        .call(self, ex); }
+            @Override public void onIoException      (Receiver<T> self, IOException ex) { ioExcHandler      .call(self, ex); }
+            @Override public void onProtocolException(Receiver<T> self, Exception   ex) { protocolExcHandler.call(self, ex); }
+        }
+        static <T> RecvOptions<T> defaults() {
+            return new Editable<>();
+        }
     }
-    public static class EditableOptions             implements Options {
 
-        public Method0              afterStop          = () -> {};
-        public Method1<Exception>   excHandler         = Throwable::printStackTrace;
-        public Method1<IOException> ioExcHandler       = Throwable::printStackTrace;
-        public Method1<Exception>   protocolExcHandler = Throwable::printStackTrace;
+    public static class StartWhenAlreadyOnException extends RuntimeException {}
+    public static class StopWhenNotOnException      extends RuntimeException {}
 
-        @Override public void afterStop          () { }
-        @Override public void onException        (Exception   ex) { }
-        @Override public void onIoException      (IOException ex) { }
-        @Override public void onProtocolException(Exception   ex) { }
-    }
-    public static class StartWhenAlreadyOnException extends    RuntimeException {}
-    public static class StopWhenNotOnException      extends    RuntimeException {}
-
-    private final java.io.InputStream     input;
-    private       Boolean                 isOn = false;
-    private       Boolean                 toStop = false;
-    private       CompletableFuture<Void> stopFuture;
+    private final Function0<java.io.InputStream> inputGetter;
+    private       Boolean                        isOn        = false;
+    private       Boolean                        toStop      = false;
+    private       CompletableFuture<Void>        stopFuture;
 
     protected abstract T fromBytes(byte[] incoming);
 
-    public Receiver(java.io.InputStream input) {
-        this.input = input;
+    public Receiver(Function0<java.io.InputStream> inputGetter) {
+        this.inputGetter = inputGetter;
     }
 
-    public final void recv     (Method1<T>            incomingCb,
-                                Options               options) {
+    public final void         recv     (Method1<T>            incomingCb,
+                                        RecvOptions<T>        options) {
         recvWhile((T incoming) -> {
             incomingCb.call(incoming);
             return true;
         }, options);
     }
-    public final void recv     (Method1<T>            incomingCb) { recv(incomingCb, new EditableOptions()); }
+    public final void         recv     (Method1<T>            incomingCb) { recv(incomingCb, RecvOptions.defaults()); }
     synchronized
-    public final void recvWhile(Function1<Boolean, T> incomingCb,
-                                Options               options) {
+    public final void         recvWhile(Function1<Boolean, T> incomingCb,
+                                        RecvOptions<T>        options) {
         if (isOn) {
             throw new StartWhenAlreadyOnException();
         }
@@ -60,6 +68,7 @@ public abstract class Receiver<T> {
                 byte[] incomingAsBytes;
                 try {
                     try {
+                        var input           = inputGetter.call();
                         var sizeSize        = input.read();
                         var sizeAsBytes     = new byte[sizeSize];
                         input.read(sizeAsBytes, 0, sizeSize);
@@ -68,11 +77,11 @@ public abstract class Receiver<T> {
                         input.read(incomingAsBytes, 0, size);
                     }
                     catch (IOException ex) {
-                        options.onIoException(ex);
+                        options.onIoException(this, ex);
                         break;
                     }
                     catch (Exception ex) {
-                        options.onProtocolException(ex);
+                        options.onProtocolException(this, ex);
                         break;
                     }
                     try {
@@ -82,7 +91,7 @@ public abstract class Receiver<T> {
                         }
                     }
                     catch (Exception ex) {
-                        options.onException(ex);
+                        options.onException(this, ex);
                     }
                 }
                 catch (Exception ex) {
@@ -93,13 +102,13 @@ public abstract class Receiver<T> {
             }
             isOn = false;
             assert stopFuture != null;
-            stopFuture.completeAsync(null);
-            options.afterStop();
+            stopFuture.completeAsync(() -> null);
+            options.afterStop(this);
         }).start();
         stopFuture = new CompletableFuture<>();
         isOn       = true;
     }
-    public final void recvWhile(Function1<Boolean, T> incomingCb) { recvWhile(incomingCb, new EditableOptions()); }
+    public final void         recvWhile(Function1<Boolean, T> incomingCb) { recvWhile(incomingCb, RecvOptions.defaults()); }
     synchronized
     public final Future<Void> recvStop () {
 
@@ -111,7 +120,8 @@ public abstract class Receiver<T> {
         return stopFuture;
     }
     public final <T2> Receiver<T2> extend(Function1<T2, T> adapterFunction) {
-        return new Receiver<T2>(input) {
+
+        return new Receiver<T2>(inputGetter) {
 
             @Override protected T2 fromBytes(byte[] incoming) {
                 return adapterFunction.call(Receiver.this.fromBytes(incoming));
